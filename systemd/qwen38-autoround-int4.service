@@ -1,0 +1,17 @@
+[Unit]
+Description=Qwen3.8-27B AutoRound W4A16 vLLM server on two RTX 3090 GPUs
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/qwen38-autoround-2x3090
+ExecStart=/usr/bin/docker start qwen38-autoround-int4
+ExecStartPost=/opt/qwen38-autoround-2x3090/scripts/wait-ready.sh
+ExecStop=/usr/bin/docker stop qwen38-autoround-int4
+TimeoutStartSec=1000
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target
