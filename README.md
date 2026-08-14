@@ -14,11 +14,11 @@ The checked-in profile was validated on GPU 2/3 of a four-3090 host with an NV4 
 | vLLM quantization | `inc` |
 | Linear kernel | AutoGPTQ Marlin |
 | Tensor parallelism | 2 |
-| Context | 220,000 tokens |
+| Context | 262,144 tokens |
 | KV dtype | FP8 |
 | KV allocation | 9.6 GiB per GPU |
 | Logical KV pool | 532,026 tokens |
-| 220K concurrency | 2.42x |
+| 262K concurrency | 2.03x |
 | GPU memory after startup | 22,154 MiB per GPU |
 | Free GPU memory | 1,971 MiB per GPU |
 | MTP draft length | 3 tokens |
@@ -74,7 +74,7 @@ The default API is:
 ```text
 http://SERVER_IP:8011/v1
 model: qwen3.8-27b
-context: 220000
+context: 262144
 ```
 
 ## Exact serving behavior

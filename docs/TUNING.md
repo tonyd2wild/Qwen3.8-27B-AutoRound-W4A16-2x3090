@@ -5,7 +5,7 @@
 Start with the shipped profile before changing one variable at a time:
 
 ```text
-MAX_MODEL_LEN=220000
+MAX_MODEL_LEN=262144
 GPU_MEMORY_UTILIZATION=0.90
 MAX_NUM_SEQS=16
 MAX_NUM_BATCHED_TOKENS=8192
@@ -19,7 +19,7 @@ The reference NVLink deployment reported:
 Model memory:                 9.59 GiB per GPU
 Available KV cache memory:   9.6 GiB per GPU
 GPU KV cache size:           532,026 logical tokens
-220K maximum concurrency:    2.42x
+262K maximum concurrency:    2.03x
 CUDA graph memory:           0.59 GiB per GPU
 ```
 
