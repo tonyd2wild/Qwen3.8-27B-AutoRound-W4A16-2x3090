@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="364" font-family="Menlo,monospace" font-size="12">
+<rect width="760" height="364" fill="#0d1117"/>
+<text x="380.0" y="26" fill="#e6edf3" text-anchor="middle" font-size="16" font-weight="bold">Qwen3.8-27B W4A16 2x3090 — NORMAL prompts (real work)</text>
+<rect x="150" y="38" width="12" height="12" fill="#8b949e"/><text x="168" y="48" fill="#8b949e">MTP n=3</text>
+<rect x="260" y="38" width="12" height="12" fill="#3fb950"/><text x="278" y="48" fill="#3fb950">MTP n=4</text>
+<text x="142" y="82" fill="#e6edf3" text-anchor="end">code-api</text>
+<rect x="150" y="60" width="427" height="22" fill="#8b949e" rx="3"/>
+<text x="583" y="76" fill="#8b949e">126.1</text>
+<rect x="150" y="86" width="452" height="22" fill="#3fb950" rx="3"/>
+<text x="608" y="102" fill="#3fb950" font-weight="bold">133.5  (+6%)</text>
+<text x="142" y="148" fill="#e6edf3" text-anchor="end">code-quicksort</text>
+<rect x="150" y="126" width="428" height="22" fill="#8b949e" rx="3"/>
+<text x="584" y="142" fill="#8b949e">126.3</text>
+<rect x="150" y="152" width="429" height="22" fill="#3fb950" rx="3"/>
+<text x="585" y="168" fill="#3fb950" font-weight="bold">126.7  (+0%)</text>
+<text x="142" y="214" fill="#e6edf3" text-anchor="end">email-draft</text>
+<rect x="150" y="192" width="337" height="22" fill="#8b949e" rx="3"/>
+<text x="493" y="208" fill="#8b949e">99.6</text>
+<rect x="150" y="218" width="354" height="22" fill="#3fb950" rx="3"/>
+<text x="510" y="234" fill="#3fb950" font-weight="bold">104.4  (+5%)</text>
+<text x="142" y="280" fill="#e6edf3" text-anchor="end">prose-fridge</text>
+<rect x="150" y="258" width="314" height="22" fill="#8b949e" rx="3"/>
+<text x="470" y="274" fill="#8b949e">92.8</text>
+<rect x="150" y="284" width="299" height="22" fill="#3fb950" rx="3"/>
+<text x="455" y="300" fill="#3fb950" font-weight="bold">88.3  (-5%)</text>
+<text x="380.0" y="352" fill="#8b949e" text-anchor="middle">decode tokens/s (first token to last, mean of 3 runs) · higher is better</text>
+</svg>

@@ -21,10 +21,52 @@ The checked-in profile was validated on GPU 2/3 of a four-3090 host with an NV4 
 | 262K concurrency | 2.03x |
 | GPU memory after startup | 22,154 MiB per GPU |
 | Free GPU memory | 1,971 MiB per GPU |
-| MTP draft length | 3 tokens |
+| MTP draft length | **4 tokens** (was 3; see A/B benchmark below) |
 | Restart/OOM count after verification | 0 / 0 |
 
 Four forced 384-token single-stream checks measured 94.42, 97.23, 103.77, and 98.61 tokens/s. The three-run repeat average was **99.87 tokens/s**. Performance varies with prompt length, MTP acceptance, clocks, thermals, drivers, topology, and client overhead. These numbers measure speed, not model-quality equivalence to another quant.
+
+## MTP3 vs MTP4: measured A/B on the same box, same day
+
+We originally shipped this profile with a 3-token MTP draft. A community sweep
+suggested `n=4` is the knee of the curve, so we ran both side by side on one
+4x3090 host: **GPU 0/1 serving MTP n=3 and GPU 2/3 serving MTP n=4**, identical
+model, image, and flags otherwise. Each number is the mean decode rate of
+repeated single-stream runs (streamed, timed first token to last, prefill
+excluded, thinking disabled, temperature 0.2).
+
+**Easy prompts** (highly predictable output — this is where speculative
+decoding shines, and where you see the top speeds):
+
+| Prompt | MTP n=3 (tok/s) | MTP n=4 (tok/s) | Gain |
+|---|---:|---:|---:|
+| alphabet-rows | 145.9 | 154.4 | +6% |
+| count-1-200 | 142.7 | 154.0 | +8% |
+| json-fill | 141.6 | 159.5 | +13% |
+| repeat-hello | 103.9 | 139.0 | +34% |
+
+![Easy prompts](docs/bench-mtp4-easy.svg)
+
+**Normal prompts** (real prose and code):
+
+| Prompt | MTP n=3 (tok/s) | MTP n=4 (tok/s) | Gain |
+|---|---:|---:|---:|
+| code-api | 126.1 | 133.5 | +6% |
+| code-quicksort | 126.3 | 126.7 | +0% |
+| email-draft | 99.6 | 104.4 | +5% |
+| prose-fridge | 92.8 | 88.3 | -5% |
+
+![Normal prompts](docs/bench-mtp4-normal.svg)
+
+**Summary:** easy/structured output mean **133.5 → 151.7 tok/s (+14%)** with a
+best single run of **159.9 tok/s**; normal-work mean **111.2 → 113.2 (+2%)**
+with code up ~6% and free-form prose down ~5%. MTP n=4 wins or ties everywhere
+that matters for agent workloads (structured output, JSON, code), so **n=4 is
+now the repository default** (`NUM_SPECULATIVE_TOKENS=4`). If your workload is
+overwhelmingly free-form prose, `n=3` remains a fine choice — it is one number
+in `.env`.
+
+Reproduce with `scripts/mtp-ab-bench.py` against any two endpoints.
 
 ## What is quantized
 
@@ -83,7 +125,7 @@ The launch script intentionally enables:
 
 - `--quantization inc` and BF16 compute;
 - compiled execution and CUDA graphs; it does not use eager mode;
-- three-token MTP speculative decoding;
+- four-token MTP speculative decoding (see the MTP3 vs MTP4 benchmark below);
 - FP8 KV cache;
 - `qwen3_xml` automatic tool parsing;
 - `qwen3` reasoning parsing;
