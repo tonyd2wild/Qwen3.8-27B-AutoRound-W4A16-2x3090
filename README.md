@@ -21,15 +21,21 @@ The same W4A16 weights run under two speculative-decoding drafters. Both were va
 | **Max context (verified safe)** | **131,072** | **262,144** |
 | **Logical KV pool** | **258,735 tokens** | **532,026 tokens** |
 | Concurrency at max context | 1.97x @ 131K | 2.03x @ 262K |
-| Single-stream decode | 97.6 tok/s | 99.9 tok/s |
-| Aggregate decode (saturated, ~C2) | **~181 tok/s** | ~180 tok/s |
-| Our 69-scenario eval | **★★★★★ #1 — 66/2/1, Quality 97.1, Deployability 97.9** | ★★★★★ baseline — 66/2/1, Quality 97.1, Deployability 97.5 |
+| **Real-agent decode (69-scenario eval, single stream)** | **101.1 tok/s** | 77.8 tok/s |
+| Structured-output decode (8-prompt easy mean) | **252.9 tok/s** | 157.3 tok/s |
+| Code decode (quicksort + api mean) | **191.5 tok/s** | 141.2 tok/s |
+| Free-prose decode (single stream) | 91.2 tok/s | 94.4 tok/s |
+| Aggregate throughput (saturated, ~C2) | ~181 tok/s | ~180 tok/s |
+| Median turn latency (eval) | **528 ms** | 812 ms |
+| Our 69-scenario eval | **★★★★★ #1, 66/2/1, Quality 97.1, Deployability 97.9** | ★★★★★, 66/2/1, Quality 97.1, Deployability 97.5 |
 
-**Read this:** raw decode is a wash (both ~180 tok/s aggregate, single-stream within a point). The DFlash2 win is **responsiveness** — median turn latency 528 ms drove it to a 99.9 responsiveness score and the top Deployability on our board (97.9 vs 97.5), at **identical model quality** (both 66 pass / 2 partial / 1 fail out of 69). It is the default because on real agent traffic it feels snappier and scores highest, for free.
+**Read this (corrected):** an earlier version of this table said "decode is a wash." It is not. On the traffic agents actually send, DFlash2 decodes materially faster. On our 69-scenario agent eval (real prompts, tool calls, code, JSON) DFlash2 sustained **101.1 tok/s vs MTP4's 77.8** single-stream, a **+30%** decode win, and cut median turn latency to **528 ms vs 812 ms**. On a same-box same-day micro-benchmark it ran **+50 to +83% on structured output** (counting, JSON, repetition) and **+34 to +37% on code**, tied on email, and lost only **3% on free-form prose**, the one workload where a block-diffusion drafter has little to predict. The single number that IS a wash is saturated aggregate throughput: past about C2 both drafters hit the two 3090s' ~180 tok/s memory-bandwidth ceiling, so at full concurrency they converge. Model quality is identical either way (both 66 pass / 2 partial / 1 fail). DFlash2 is the default because it is genuinely faster per request on real agent work and took #1 on our board. The only thing you trade for it is the context ceiling, explained next.
 
 ### Why the KV pool and max context differ
 
-The DFlash2 drafter is **heavy**: its two candidate-selector codebooks (~0.5 GiB per GPU) plus a five-layer backbone sit in VRAM alongside the 27B weights, and they eat the headroom the first prefill needs for activation buffers. To keep the first prefill from OOM-ing, the speed tier runs at `GPU_MEMORY_UTILIZATION=0.80` instead of 0.90. Lower utilization means a smaller KV cache — **258,735 logical tokens vs 532,026** — so we ship the speed tier at a **131,072** context ceiling rather than the model's native 262,144. The weights can address 262K, but the pool at 0.80 will not hold a full 256K sequence next to the drafter without risking a prefill OOM. If you need the full 262K context or the deepest concurrent-stream pool, use the context tier; if you want the top-ranked, snappiest agent server, use DFlash2. (Logical token counts are for the tensor-parallel engine — do not double them for two cards.)
+The DFlash2 drafter is **heavy**: its two candidate-selector codebooks (~0.5 GiB per GPU) plus a five-layer backbone sit in VRAM alongside the 27B weights, and they eat the headroom the first prefill needs for activation buffers. To keep the first prefill from OOM-ing, the speed tier runs at `GPU_MEMORY_UTILIZATION=0.80` instead of 0.90. Lower utilization means a smaller KV cache — **258,735 logical tokens vs 532,026** — so we ship the speed tier at a **131,072** context ceiling rather than the model's native 262,144. The weights can address 262K, but the pool at 0.80 will not hold a full 256K sequence next to the drafter without risking a prefill OOM. If you need the full 262K context or the deepest concurrent-stream pool on **two** cards, use the context tier; if you want the top-ranked, snappiest agent server on two cards, use DFlash2. (Logical token counts are for the tensor-parallel engine, do not double them for two cards.)
+
+**Have four 3090s?** The 131K cap is a two-card limitation, not a DFlash2 limitation. The companion repo [**Qwen3.8-27B-DFlash2-4x3090-TP4**](https://github.com/tonyd2wild/Qwen3.8-27B-DFlash2-4x3090-TP4) runs the exact same DFlash2 drafter across all four cards (TP=4). The four-card KV pool is **1,003,062 tokens, which holds 3.83 full 262,144-token sequences**, so on four cards you get DFlash2 speed AND the model's full native context with deep concurrency, no penalty. The only cost is a modest per-stream throughput drop (the four-way all-reduce has to cross PCIe between the two NVLink pairs). See that repo for the full TP=4 sweep.
 
 ## Verified reference result
 
@@ -53,14 +59,22 @@ The checked-in profile was validated on GPU 2/3 of a four-3090 host with an NV4 
 
 Four forced 384-token single-stream checks measured 94.42, 97.23, 103.77, and 98.61 tokens/s. The three-run repeat average was **99.87 tokens/s**. Performance varies with prompt length, MTP acceptance, clocks, thermals, drivers, topology, and client overhead. These numbers measure speed, not model-quality equivalence to another quant.
 
-## MTP3 vs MTP4: measured A/B on the same box, same day
+## MTP3 vs MTP4 vs DFlash2: measured A/B on the same box
 
-We originally shipped this profile with a 3-token MTP draft. A community sweep
-suggested `n=4` is the knee of the curve, so we ran both side by side on one
-4x3090 host: **GPU 0/1 serving MTP n=3 and GPU 2/3 serving MTP n=4**, identical
-model, image, and flags otherwise. Each number is the mean decode rate of
-repeated single-stream runs (streamed, timed first token to last, prefill
-excluded, thinking disabled, temperature 0.2).
+Two A/B runs on the same 4x3090 host, both single-stream decode (streamed, timed
+first token to last, prefill excluded, thinking disabled, temperature 0.2):
+
+1. **The original MTP sweep (immediately below).** GPU 0/1 serving MTP `n=3` and
+   GPU 2/3 serving MTP `n=4`, to pick the MTP draft depth. `n=4` won and is the
+   context-tier default.
+2. **The DFlash2 comparison (further down).** A later same-day run on the same box,
+   same censored AutoRound W4A16 weights, drafter the only variable: MTP `n=4` on
+   one 3090 pair versus the DFlash2 `n=7` drafter on the other. This is the run that
+   decided the speed tier.
+
+The MTP `n=4` column appears in both runs; its absolute numbers differ a few percent
+between the two days (clocks and thermals), so read each table's deltas against its
+own baseline, not across tables.
 
 **Easy prompts** (highly predictable output — this is where speculative
 decoding shines, and where you see the top speeds):
@@ -85,15 +99,44 @@ decoding shines, and where you see the top speeds):
 
 ![Normal prompts](docs/bench-mtp4-normal.svg)
 
-**Summary:** easy/structured output mean **133.5 → 151.7 tok/s (+14%)** with a
-best single run of **159.9 tok/s**; normal-work mean **111.2 → 113.2 (+2%)**
-with code up ~6% and free-form prose down ~5%. MTP n=4 wins or ties everywhere
-that matters for agent workloads (structured output, JSON, code), so **n=4 is
-now the repository default** (`NUM_SPECULATIVE_TOKENS=4`). If your workload is
-overwhelmingly free-form prose, `n=3` remains a fine choice — it is one number
-in `.env`.
+**MTP sweep summary:** easy/structured mean **133.5 → 151.7 tok/s (+14%)** with a
+best single run of **159.9 tok/s**; normal-work mean **111.2 → 113.2 (+2%)**, code up
+~6%, free-form prose down ~5%. MTP `n=4` wins or ties everywhere that matters for agent
+workloads, so `n=4` is the context-tier default (`NUM_SPECULATIVE_TOKENS=4`).
 
-Reproduce with `scripts/mtp-ab-bench.py` against any two endpoints.
+### DFlash2 n=7 vs MTP n=4 (fresh, same box, same day)
+
+Same censored AutoRound W4A16 weights on both 3090 pairs; the drafter is the only
+difference. This is the run that made DFlash2 the default speed tier.
+
+**Easy prompts** (structured output, where the DFlash2 block-diffusion drafter's parallel proposals get accepted most):
+
+| Prompt | MTP n=4 (tok/s) | DFlash2 n=7 (tok/s) | Gain |
+|---|---:|---:|---:|
+| count-1-200 | 163.4 | 262.9 | +61% |
+| repeat-hello | 142.6 | 261.6 | +83% |
+| alphabet-rows | 159.4 | 238.9 | +50% |
+| json-fill | 163.8 | 248.0 | +51% |
+
+**Normal prompts** (real prose and code):
+
+| Prompt | MTP n=4 (tok/s) | DFlash2 n=7 (tok/s) | Gain |
+|---|---:|---:|---:|
+| code-quicksort | 144.9 | 199.1 | +37% |
+| code-api | 137.5 | 183.9 | +34% |
+| email-draft | 106.8 | 110.6 | +4% |
+| prose-fridge | 94.4 | 91.2 | -3% |
+
+**DFlash2 summary:** easy/structured mean **157.3 → 252.9 tok/s (+61%)**; normal-work
+mean **120.9 → 146.2 (+21%)**, code up ~35%, email a tie, and free-form prose the lone
+loss at -3%. Chained through the MTP sweep, the full ladder on structured output is
+**MTP3 ~133 tok/s to MTP4 ~157 to DFlash2 ~253**. DFlash2 wins every structured and
+code workload by a wide margin, which is why it is the repository's default drafter.
+The only workload it does not win is pure free-form prose, where MTP `n=4` is marginally
+ahead; if that is your entire workload, MTP `n=4` remains a fine choice.
+
+Reproduce either run with `scripts/mtp-ab-bench.py` against any two endpoints
+(`LABEL_A`/`ENDPOINT_A`, `LABEL_B`/`ENDPOINT_B`, `MODEL`).
 
 ## What is quantized
 
