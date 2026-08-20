@@ -2,7 +2,34 @@
 
 Production-oriented Docker deployment for [`Vishva007/Qwen3.8-27B-W4A16-AutoRound`](https://huggingface.co/Vishva007/Qwen3.8-27B-W4A16-AutoRound) on two 24 GB RTX 3090 GPUs.
 
-The repository supports paired 3090s with NVLink and ordinary PCIe-only pairs. It exposes an OpenAI-compatible vLLM API with compiled CUDA graphs, MTP speculative decoding, vision, structured tool calling, and separated reasoning.
+The repository supports paired 3090s with NVLink and ordinary PCIe-only pairs. It exposes an OpenAI-compatible vLLM API with compiled CUDA graphs, speculative decoding, vision, structured tool calling, and separated reasoning.
+
+## Two tiers, pick your drafter
+
+The same W4A16 weights run under two speculative-decoding drafters. Both were validated on the same 2x RTX 3090 (NV4) host; both preserve the model output exactly, because speculative decoding only proposes tokens the target model then verifies.
+
+- **Speed tier — DFlash2 (default / recommended).** A block-diffusion "keep drafting parallel" drafter (`incoai/Qwen3.8-27B-DFlash2`, `n=7`), the sibling successor to DFlash, ported from [vllm-project/vllm#52816](https://github.com/vllm-project/vllm/pull/52816). It took **#1 on our internal 69-scenario agent eval**. Best responsiveness; the trade is a heavier drafter, so a smaller KV pool and a lower safe context ceiling (see below). Recipe: [`recipes/speed-tier-dflash2/`](recipes/speed-tier-dflash2/).
+- **Context tier — AutoRound + MTP (`n=4`).** The in-checkpoint MTP head. Lighter, so it keeps the full 262,144-token context and the larger KV pool. Reach for it when you need maximum context or maximum concurrent long-context streams. This is the profile the rest of this README documents.
+
+### Head to head (measured, same box, same day)
+
+| Metric | Speed tier · DFlash2 | Context tier · MTP n=4 |
+|---|---:|---:|
+| Drafter | DFlash2 `n=7` (block-diffusion, separate 3.6 GB checkpoint) | MTP `n=4` (in-checkpoint head) |
+| vLLM image | `v0.27.1` + `vllm-dflash2` overlay | `qwen38-x86_64-cu129` |
+| GPU memory utilization | 0.80 (heavy drafter) | 0.90 |
+| **Max context (verified safe)** | **131,072** | **262,144** |
+| **Logical KV pool** | **258,735 tokens** | **532,026 tokens** |
+| Concurrency at max context | 1.97x @ 131K | 2.03x @ 262K |
+| Single-stream decode | 97.6 tok/s | 99.9 tok/s |
+| Aggregate decode (saturated, ~C2) | **~181 tok/s** | ~180 tok/s |
+| Our 69-scenario eval | **★★★★★ #1 — 66/2/1, Quality 97.1, Deployability 97.9** | ★★★★★ baseline — 66/2/1, Quality 97.1, Deployability 97.5 |
+
+**Read this:** raw decode is a wash (both ~180 tok/s aggregate, single-stream within a point). The DFlash2 win is **responsiveness** — median turn latency 528 ms drove it to a 99.9 responsiveness score and the top Deployability on our board (97.9 vs 97.5), at **identical model quality** (both 66 pass / 2 partial / 1 fail out of 69). It is the default because on real agent traffic it feels snappier and scores highest, for free.
+
+### Why the KV pool and max context differ
+
+The DFlash2 drafter is **heavy**: its two candidate-selector codebooks (~0.5 GiB per GPU) plus a five-layer backbone sit in VRAM alongside the 27B weights, and they eat the headroom the first prefill needs for activation buffers. To keep the first prefill from OOM-ing, the speed tier runs at `GPU_MEMORY_UTILIZATION=0.80` instead of 0.90. Lower utilization means a smaller KV cache — **258,735 logical tokens vs 532,026** — so we ship the speed tier at a **131,072** context ceiling rather than the model's native 262,144. The weights can address 262K, but the pool at 0.80 will not hold a full 256K sequence next to the drafter without risking a prefill OOM. If you need the full 262K context or the deepest concurrent-stream pool, use the context tier; if you want the top-ranked, snappiest agent server, use DFlash2. (Logical token counts are for the tensor-parallel engine — do not double them for two cards.)
 
 ## Verified reference result
 
@@ -185,6 +212,7 @@ sudo systemctl start qwen38-autoround-int4.service
 
 ## Documentation
 
+- [**Speed tier — DFlash2 drafter (default, #1 on our eval)**](recipes/speed-tier-dflash2/)
 - [Tuning](docs/TUNING.md)
 - [Troubleshooting](docs/TROUBLESHOOTING.md)
 - [Safe cutover and rollback](docs/CUTOVER.md)
@@ -210,6 +238,8 @@ sudo systemctl start qwen38-autoround-int4.service
 |   |-- status.sh
 |   |-- verify.py
 |   `-- wait-ready.sh
+|-- recipes/
+|   `-- speed-tier-dflash2/   # SPEED TIER (default): DFlash2 drafter + vendored vllm#52816 overlay
 `-- systemd/
     `-- qwen38-autoround-int4.service
 ```
