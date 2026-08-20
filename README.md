@@ -140,6 +140,17 @@ ahead; if that is your entire workload, MTP `n=4` remains a fine choice.
 Reproduce either run with `scripts/mtp-ab-bench.py` against any two endpoints
 (`LABEL_A`/`ENDPOINT_A`, `LABEL_B`/`ENDPOINT_B`, `MODEL`).
 
+### Cross-engine: DFlash2 (vLLM) vs DSpark (SGLang)
+
+DFlash2 is not the only block-diffusion drafter for this model. SGLang has its own, **DSpark**.
+On the same 8-prompt bench (same box, thinking-off, single-stream, 2026-08-20), it splits by
+workload: DSpark is **~34% faster on pure structured/repetitive output** (counting, JSON,
+repetition), while DFlash2 wins the mixed real-agent traffic (prose, email, free-form code, +5
+to +20%) and ties on code. DFlash2 also keeps a far larger KV pool on the same two cards
+(258,735 vs DSpark's ~116,611 / 3-request clamp), which is what makes it the better fleet server.
+Full head-to-head with the numbers and both recipes:
+[Qwen3.8-27B-SGLang-vs-vLLM-2x3090](https://github.com/tonyd2wild/Qwen3.8-27B-SGLang-vs-vLLM-2x3090).
+
 ## What is quantized
 
 This checkpoint uses AutoRound W4A16: the main quantized weights are 4-bit and activations remain 16-bit. Its metadata uses `auto_round:auto_gptq` packing, and the tested vLLM image resolves it through `--quantization inc` to the Marlin AutoGPTQ kernel.
