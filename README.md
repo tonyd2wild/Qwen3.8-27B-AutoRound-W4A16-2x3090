@@ -18,7 +18,7 @@ The same W4A16 weights run under two speculative-decoding drafters. Both were va
 | Drafter | DFlash2 `n=7` (block-diffusion, separate 3.6 GB checkpoint) | MTP `n=4` (in-checkpoint head) |
 | vLLM image | `v0.27.1` + `vllm-dflash2` overlay | `qwen38-x86_64-cu129` |
 | GPU memory utilization | 0.80 (heavy drafter) | 0.90 |
-| **Max context (verified safe)** | **131,072** | **262,144** |
+| **Max context (shipped default / max loadable)** | **131,072 / ~234,000** | **262,144** |
 | **Logical KV pool** | **258,735 tokens** | **532,026 tokens** |
 | Concurrency at max context | 1.97x @ 131K | 2.03x @ 262K |
 | **Real-agent decode (69-scenario eval, single stream)** | **101.1 tok/s** | 77.8 tok/s |
@@ -34,6 +34,8 @@ The same W4A16 weights run under two speculative-decoding drafters. Both were va
 ### Why the KV pool and max context differ
 
 The DFlash2 drafter is **heavy**: its two candidate-selector codebooks (~0.5 GiB per GPU) plus a five-layer backbone sit in VRAM alongside the 27B weights, and they eat the headroom the first prefill needs for activation buffers. To keep the first prefill from OOM-ing, the speed tier runs at `GPU_MEMORY_UTILIZATION=0.80` instead of 0.90. Lower utilization means a smaller KV cache — **258,735 logical tokens vs 532,026** — so we ship the speed tier at a **131,072** context ceiling rather than the model's native 262,144. The weights can address 262K, but the pool at 0.80 will not hold a full 256K sequence next to the drafter without risking a prefill OOM. If you need the full 262K context or the deepest concurrent-stream pool on **two** cards, use the context tier; if you want the top-ranked, snappiest agent server on two cards, use DFlash2. (Logical token counts are for the tensor-parallel engine, do not double them for two cards.)
+
+**You can push the context higher on two cards if you need it (measured 2026-08-20).** The 131,072 ceiling is the deep-concurrency default, not a hard limit. The same TP=2 DFlash2 lane loads clean at **`MAX_MODEL_LEN=220000`** with a **235,492-token pool (1.07x concurrency at 220K)**; the real single-sequence ceiling is **~234,000** (235,000 crash-loops right at the pool edge, the engine's own reported safe max was 234,016). So on two cards you can trade concurrency for context up to ~234K when you need it. We keep **131,072 as the shipped default** because it holds the deeper **1.97x** concurrency pool, which matters more for an agent server than the last ~100K of single-sequence context.
 
 **Have four 3090s?** The 131K cap is a two-card limitation, not a DFlash2 limitation. The companion repo [**Qwen3.8-27B-DFlash2-4x3090-TP4**](https://github.com/tonyd2wild/Qwen3.8-27B-DFlash2-4x3090-TP4) runs the exact same DFlash2 drafter across all four cards (TP=4). The four-card KV pool is **1,003,062 tokens, which holds 3.83 full 262,144-token sequences**, so on four cards you get DFlash2 speed AND the model's full native context with deep concurrency, no penalty. The only cost is a modest per-stream throughput drop (the four-way all-reduce has to cross PCIe between the two NVLink pairs). See that repo for the full TP=4 sweep.
 
